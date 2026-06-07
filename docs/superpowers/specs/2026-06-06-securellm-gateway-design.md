@@ -139,7 +139,12 @@ vitest.config.ts  .github/workflows/ci.yml  README.md
 
 ### 5.4 PII redaction (inbound)
 - Categories (≥3): **email**, **phone** (Israeli `+972`/`05x`/`0x` and international
-  `+CC`), **Israeli national ID** (9 digits with valid check digit to limit false positives).
+  `+CC`), **Israeli national ID** (bare 9-digit sequences). NOTE: redaction does **not**
+  gate on the official check digit — the mandated corpus includes `987654321`, which
+  fails the check — so we redact any standalone 9-digit run. Over-redaction is the safe
+  bias in a regulated gateway; the check digit is noted as a future confidence signal,
+  not a filter. Ordering (email → phone → ID) plus requiring separators in the phone
+  pattern prevents the phone matcher from consuming bare ID digits.
 - Each detected span replaced **in place** with a reversible token: `[EMAIL_1]`,
   `[PHONE_1]`, `[ISR_ID_1]`, … Redacted content (not the original) is sent to the LLM.
 - The `token → original` map is **AES-256-GCM-encrypted** (`PII_ENCRYPTION_KEY` from

@@ -62,3 +62,37 @@ gateway failure; leaked content never returned). Writing the spec doc to
 `docs/superpowers/specs/2026-06-06-securellm-gateway-design.md` next.
 
 ---
+
+## Prompt — Spec review approval
+
+> approve
+
+**Decision:** Spec approved as written (committed on branch `feat/securellm-gateway`,
+commit `ee84340`). Proceeding to the `writing-plans` skill to produce the step-by-step
+implementation plan.
+
+---
+
+## Prompt — Continue to implementation plan
+
+> continue
+
+**Decisions made while writing the plan:**
+- **Spec correction (verified):** the Israeli national ID `987654321` (corpus PII-D2)
+  **fails** the official check-digit algorithm. Gating redaction on the check digit
+  would miss a mandated corpus entry, so the redactor matches any bare 9-digit run
+  (conservative over-redaction). Spec §5.4 updated to match. *(This is also the
+  "What you rejected" example for the deliverable PROMPTS.md.)*
+- **Stack pinned:** Express 4, MongoDB native driver 6 (no Mongoose — smaller), ioredis 5,
+  zod, pino + pino-http, `@anthropic-ai/sdk`, `openai`, Vitest + supertest, `ioredis-mock`
+  for rate-limit unit tests. ESM + TS strict + `noUncheckedIndexedAccess`.
+- **Pipeline shape:** auth → rateLimit → validateBody → injectionGuard → piiRedaction as
+  Express middleware; chat handler runs provider + output validation; a central error
+  handler writes exactly one audit record per request (allowed/blocked/error).
+- **Rate limiter:** Redis sliding window via sorted set; unique members use
+  `crypto.randomUUID()` (no `Math.random()`), per Fireblocks crypto rules.
+- Plan saved to `docs/superpowers/plans/2026-06-06-securellm-gateway.md` (18 tasks, TDD,
+  full code per step). Self-review: all 3 endpoints, 7 controls, full corpus coverage,
+  Docker/CI, no placeholders.
+
+---
