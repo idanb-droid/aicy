@@ -1,0 +1,38 @@
+services:
+  gateway:
+    build: .
+    ports: ["3000:3000"]
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/securellm
+      REDIS_URL: redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:?set API_KEY_PEPPER in your .env}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?set PII_ENCRYPTION_KEY in your .env}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mongo-data:
