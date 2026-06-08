@@ -96,3 +96,47 @@ implementation plan.
   Docker/CI, no placeholders.
 
 ---
+
+## Prompt — Execution mode
+
+> 1
+
+**Decision:** Subagent-driven execution — a fresh subagent implements each plan task,
+with review between tasks. Invoking the `subagent-driven-development` skill.
+
+---
+
+## Implementation execution (subagent-driven, Claude Code / Opus 4.8)
+
+Built in 5 reviewed phases on branch `feat/securellm-gateway`. Each phase: implementer
+subagent → independent spec-compliance review → independent code-quality review →
+fixes → re-verify. Docker is unavailable in this environment, so Docker/Compose/CI
+files were authored but the live `docker compose up` + real-Anthropic call are
+deferred to the user.
+
+- **Phase A (T0–T5):** scaffold + pure security cores (crypto, injection, PII, output).
+  Review caught: output-validator false positive on "confirmed…system prompt";
+  exported `/g` regex hazard; injection false positives (bare `\bdan\b`, "developer
+  mode", broad "no restrictions"); missing cipher key-length guard; singular
+  "environment variable" gap. All fixed; 50 tests.
+- **Phase B (T6–T10):** errors/types, Mongo/Redis, audit, auth (HMAC + constant-time +
+  role guard), Redis sliding-window rate limit. Review caught: silent fail-open on
+  Redis pipeline error (changed to fail-closed/throw); missing `keyId` index; double
+  DB fetch on hot path (now carried on ctx); untested `requireRole`. Fixed; 60 tests.
+- **Phase C (T11–T15):** middleware, provider router, routes, error handler, app
+  factory, bootstrap, seed. Review caught: Anthropic silently dropping `system`
+  messages (now forwarded as top-level `system`); possible double audit write on
+  success path; scattered unsafe casts (consolidated). Routing verified to resolve
+  `/v1/chat`, `/v1/audit`, `/healthz` (avoided the plan's double-prefix trap). Fixed.
+- **Phase D (T16–T17):** Dockerfile (multi-stage, non-root, healthcheck added),
+  docker-compose (gateway+mongo+redis, one command), CI (typecheck/test/gitleaks),
+  integration tests. Strengthened to endpoint-level corpus coverage: all 12 INJ-* →
+  400 + audit blocked/injection; all 3 PII-* redacted before the provider; output-echo
+  → 502 + audit blocked/output_validation. Also fixed a flaky crypto tamper test. 79 tests.
+- **Phase E (T18):** README (run/env/per-control/limitations) + this PROMPTS.md.
+
+**Multi-tool decision:** to satisfy PROMPTS.md #2 honestly, a second AI tool (non-Claude)
+performs an adversarial security review of `src/security/injection/rules.ts`; its
+findings are triaged (accept/reject with reasons) and the exchange recorded here.
+
+---
