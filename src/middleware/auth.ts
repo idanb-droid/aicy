@@ -26,6 +26,7 @@ export function authenticate(lookup: LookupFn = defaultLookup) {
       const record = await resolveApiKey(rawKey, loadEnv().API_KEY_PEPPER, lookup);
       req.ctx.keyId = record.keyId;
       req.ctx.role = record.role;
+      if (record.rateLimitPerMin !== undefined) req.ctx.rateLimitPerMin = record.rateLimitPerMin;
       next();
     } catch (err) {
       next(err);

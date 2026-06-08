@@ -21,4 +21,19 @@ describe("slidingWindowAllow", () => {
     expect(await slidingWindowAllow(redis as any, key, 1, now + 100)).toBe(false);
     expect(await slidingWindowAllow(redis as any, key, 1, now + 61_000)).toBe(true);
   });
+
+  it("throws when the redis pipeline returns null (fail-closed)", async () => {
+    const noop = () => pipeline;
+    const pipeline = {
+      zremrangebyscore: noop,
+      zadd: noop,
+      zcard: noop,
+      pexpire: noop,
+      exec: async () => null,
+    };
+    const brokenRedis = { multi: () => pipeline };
+    await expect(slidingWindowAllow(brokenRedis as any, "rl:broken", 10, Date.now())).rejects.toThrow(
+      "rate limiter: redis pipeline failed",
+    );
+  });
 });

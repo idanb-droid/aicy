@@ -16,4 +16,5 @@ export function apiKeyCollection(): Collection<ApiKeyRecord> {
 
 export async function ensureApiKeyIndexes(): Promise<void> {
   await apiKeyCollection().createIndex({ keyHash: 1 }, { unique: true });
+  await apiKeyCollection().createIndex({ keyId: 1 }, { unique: true });
 }

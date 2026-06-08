@@ -12,6 +12,7 @@ export interface RequestContext {
   startTime: number;
   keyId: string;
   role: "client" | "admin" | "unknown";
+  rateLimitPerMin?: number;
   model?: string;
   provider?: string;
   requestHash?: string;
