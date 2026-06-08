@@ -12,10 +12,17 @@ export class AnthropicProvider implements LLMProvider {
   ready(): boolean { return this.client !== null; }
   async chat(req: ProviderRequest): Promise<ProviderResponse> {
     if (!this.client) throw new Error("Anthropic not configured");
+    const systemContent = req.messages
+      .filter((m) => m.role === "system")
+      .map((m) => m.content)
+      .join("\n\n");
     const resp = await this.client.messages.create({
       model: MODEL_MAP[req.model] ?? req.model,
       max_tokens: req.maxTokens,
-      messages: req.messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      ...(systemContent ? { system: systemContent } : {}),
+      messages: req.messages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     });
     const content = resp.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     return { content, raw: resp };

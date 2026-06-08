@@ -4,6 +4,7 @@ import { validateOutput } from "../security/output/validator.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { sha256 } from "../middleware/correlation.js";
 import { OutputBlockedError } from "../errors.js";
+import { logger } from "../logger.js";
 import type { AppRequest, ChatBody } from "../types.js";
 
 export const chatRouter = Router();
@@ -11,8 +12,10 @@ export const chatRouter = Router();
 // Mounted behind: authenticate → rateLimit → validateChatBody → injectionGuard → piiRedaction.
 chatRouter.post("/", async (req, res, next) => {
   const ctx = (req as AppRequest).ctx;
+  let body: ChatBody;
+  let content: string;
   try {
-    const body = req.body as ChatBody;
+    body = req.body as ChatBody;
     const provider = getProvider(body.model);
     ctx.provider = provider.name;
 
@@ -21,6 +24,14 @@ chatRouter.post("/", async (req, res, next) => {
     const verdict = validateOutput(result.content);
     if (!verdict.clean) throw OutputBlockedError({ findings: verdict.findings });
 
+    content = result.content;
+  } catch (err) {
+    return next(err);
+  }
+
+  // Audit write is isolated: a failure here must not trigger the error handler
+  // (which would write a second audit record). Log and still send the response.
+  try {
     await writeAudit({
       correlationId: ctx.correlationId,
       ts: new Date(),
@@ -31,13 +42,13 @@ chatRouter.post("/", async (req, res, next) => {
       status: "allowed",
       threats: ctx.threats,
       requestHash: ctx.requestHash,
-      responseHash: sha256(result.content),
+      responseHash: sha256(content),
       latencyMs: Date.now() - ctx.startTime,
       ...(ctx.piiMap ? { piiMap: ctx.piiMap } : {}),
     });
-
-    res.json({ model: body.model, content: result.content });
-  } catch (err) {
-    next(err);
+  } catch (auditErr) {
+    logger.error({ auditErr }, "failed to write success audit record");
   }
+
+  res.json({ model: body.model, content });
 });
