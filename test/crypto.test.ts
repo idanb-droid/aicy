@@ -33,7 +33,12 @@ describe("cipher", () => {
   });
   it("tampered ciphertext fails to decrypt", () => {
     const enc = encryptJson({ x: 1 }, KEY);
-    expect(() => decryptJson({ ...enc, data: enc.data.replace(/.$/, "0") }, KEY)).toThrow();
+    // Flip the last hex nibble to a guaranteed-different value:
+    // replace last char with something that cannot be equal to the original.
+    const lastChar = enc.data.slice(-1)!;
+    const replacement = lastChar === "0" ? "1" : "0";
+    const tampered = enc.data.slice(0, -1) + replacement;
+    expect(() => decryptJson({ ...enc, data: tampered }, KEY)).toThrow();
   });
   it("16-byte (32-hex) key throws on encrypt", () => {
     const shortKey = "0".repeat(32); // 16 bytes, not 32
