@@ -12,7 +12,10 @@ export function redactPii(input: string): RedactionResult {
   let out = input;
 
   for (const { category, regex } of PII_PATTERNS) {
-    out = out.replace(regex, (match) => {
+    // Build a fresh /g regex each call so callers using .test() on the exported patterns
+    // never corrupt lastIndex on the shared regex object.
+    const globalRegex = new RegExp(regex.source, regex.flags + "g");
+    out = out.replace(globalRegex, (match) => {
       const existing = valueToToken.get(match);
       if (existing) return existing;
       counters[category] += 1;

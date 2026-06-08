@@ -35,4 +35,15 @@ describe("cipher", () => {
     const enc = encryptJson({ x: 1 }, KEY);
     expect(() => decryptJson({ ...enc, data: enc.data.replace(/.$/, "0") }, KEY)).toThrow();
   });
+  it("16-byte (32-hex) key throws on encrypt", () => {
+    const shortKey = "0".repeat(32); // 16 bytes, not 32
+    expect(() => encryptJson({ x: 1 }, shortKey)).toThrow(TypeError);
+    expect(() => encryptJson({ x: 1 }, shortKey)).toThrow("cipher key must be 32 bytes (64 hex chars)");
+  });
+  it("16-byte (32-hex) key throws on decrypt", () => {
+    const shortKey = "0".repeat(32); // 16 bytes, not 32
+    const fakeEnc = { iv: "0".repeat(24), tag: "0".repeat(32), data: "00" };
+    expect(() => decryptJson(fakeEnc, shortKey)).toThrow(TypeError);
+    expect(() => decryptJson(fakeEnc, shortKey)).toThrow("cipher key must be 32 bytes (64 hex chars)");
+  });
 });

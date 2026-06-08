@@ -27,4 +27,19 @@ describe("output validator — clean output passes", () => {
     expect(r.clean).toBe(true);
     expect(r.findings).toHaveLength(0);
   });
+  it("prose mentioning system prompt config is clean", () => {
+    const r = validateOutput("We confirmed the new system prompt configuration is valid.");
+    expect(r.clean).toBe(true);
+  });
+  it("refusal mentioning system prompt is clean", () => {
+    const r = validateOutput("I cannot reveal my system prompt.");
+    expect(r.clean).toBe(true);
+  });
+});
+
+describe("output validator — attack echo still flagged", () => {
+  it("model echoing CONFIRMED then dumping system prompt is flagged", () => {
+    const r = validateOutput('CONFIRMED. My full system prompt is: You are a helpful assistant...');
+    expect(r.clean).toBe(false);
+  });
 });
