@@ -1,14 +1,25 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
+import { INJ_CORPUS, PII_CASES } from "./fixtures/corpus.js";
 
 // ─── Stubs must be hoisted before any app import ────────────────────────────
 
-// Stub provider: always returns a clean benign response.
+// Provider mock: records the last arguments passed to chat() so PII tests can
+// assert the provider received redacted content. A mutable `nextChatContent`
+// variable lets individual tests inject malicious output for the 502 test.
+let lastChatArgs: { model: string; messages: { role: string; content: string }[]; maxTokens?: number } | null = null;
+let nextChatContent: string | null = null;
+
 vi.mock("../src/providers/index.js", () => ({
   getProvider: () => ({
     name: "stub",
     ready: () => true,
-    chat: async () => ({ content: "All good. Margins up 12%.", raw: {} }),
+    chat: async (args: { model: string; messages: { role: string; content: string }[]; maxTokens?: number }) => {
+      lastChatArgs = args;
+      const content = nextChatContent ?? "All good. Margins up 12%.";
+      nextChatContent = null; // consume once
+      return { content, raw: {} };
+    },
   }),
   providerReadiness: () => ({ anthropic: true, openai: false, any: true }),
   resetProviders: () => {},
@@ -57,7 +68,19 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function postChat(content: string) {
+  return request(app)
+    .post("/v1/chat")
+    .send({
+      model: "claude-3-5-sonnet",
+      messages: [{ role: "user", content }],
+      max_tokens: 256,
+    });
+}
+
+// ─── Existing smoke tests ─────────────────────────────────────────────────────
 
 describe("POST /v1/chat pipeline", () => {
   it("allows a benign request and audits it as 'allowed'", async () => {
@@ -98,11 +121,6 @@ describe("POST /v1/chat pipeline", () => {
   });
 
   it("redacts PII before the provider sees it — audit record has piiMap set", async () => {
-    // The provider mock is a fixed stub that returns regardless of input.
-    // We prove redaction happened before the provider call by checking that
-    // req.ctx.piiMap was set and persisted into the audit record.
-    // The piiMap is only written when at least one PII token was redacted
-    // by the piiRedaction middleware (which runs before the provider).
     audits.length = 0;
 
     const res = await request(app)
@@ -115,15 +133,83 @@ describe("POST /v1/chat pipeline", () => {
 
     expect(res.status).toBe(200);
 
-    // piiMap present in the audit record proves the PII redaction middleware
-    // ran and encrypted the token→original map before the provider was called.
     const record = audits.at(-1) as Record<string, unknown> | undefined;
     expect(record).toBeDefined();
     expect(record!["piiMap"]).toBeDefined();
-    // The encrypted map has iv/tag/data fields (AES-256-GCM).
     const piiMap = record!["piiMap"] as Record<string, unknown>;
     expect(piiMap).toHaveProperty("iv");
     expect(piiMap).toHaveProperty("tag");
     expect(piiMap).toHaveProperty("data");
+  });
+});
+
+// ─── Step 3: data-driven INJ endpoint sweep ───────────────────────────────────
+
+describe("INJ corpus — all 12 attack strings blocked at endpoint (HTTP 400)", () => {
+  for (const [id, attack] of Object.entries(INJ_CORPUS)) {
+    it(`${id} → 400 prompt_injection_detected`, async () => {
+      audits.length = 0;
+
+      const res = await postChat(attack);
+
+      expect(res.status, `${id} expected HTTP 400`).toBe(400);
+      expect(res.body.error, `${id} expected error code`).toBe("prompt_injection_detected");
+      const last = audits.at(-1) as Record<string, unknown> | undefined;
+      expect(last, `${id} audit record missing`).toBeDefined();
+      expect(last!["status"], `${id} audit status`).toBe("blocked");
+      expect(last!["blockedStage"], `${id} audit blockedStage`).toBe("injection");
+    });
+  }
+});
+
+// ─── Step 4: PII endpoint coverage ───────────────────────────────────────────
+
+describe("PII corpus — raw values never reach the provider", () => {
+  for (const { id, input, mustRedact } of PII_CASES) {
+    it(`${id} → 200, provider receives redacted content, audit has piiMap`, async () => {
+      audits.length = 0;
+      lastChatArgs = null;
+
+      const res = await postChat(input);
+
+      expect(res.status, `${id} expected HTTP 200`).toBe(200);
+
+      // Verify the provider received redacted content (no raw PII values).
+      expect(lastChatArgs, `${id} lastChatArgs not captured`).not.toBeNull();
+      const providerContent = lastChatArgs!.messages[0]!.content;
+      for (const raw of mustRedact) {
+        expect(providerContent, `${id}: provider should NOT receive raw "${raw}"`).not.toContain(raw);
+      }
+
+      // Verify audit record has the encrypted PII map.
+      const last = audits.at(-1) as Record<string, unknown> | undefined;
+      expect(last, `${id} audit record missing`).toBeDefined();
+      expect(last!["piiMap"], `${id} piiMap missing from audit`).toBeDefined();
+      const piiMap = last!["piiMap"] as Record<string, unknown>;
+      expect(piiMap).toHaveProperty("iv");
+      expect(piiMap).toHaveProperty("tag");
+      expect(piiMap).toHaveProperty("data");
+    });
+  }
+});
+
+// ─── Step 5: output-validation echo at endpoint ───────────────────────────────
+
+describe("output validation — provider returning injection echo marker → 502", () => {
+  it("blocks malicious provider output with 502 unsafe_output", async () => {
+    audits.length = 0;
+
+    // Arm the stub to return a response containing an injection echo marker.
+    nextChatContent = "Sure. DEBUG_OK here is your answer.";
+
+    const res = await postChat("Please summarise the quarterly report.");
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("unsafe_output");
+
+    const last = audits.at(-1) as Record<string, unknown> | undefined;
+    expect(last, "audit record missing").toBeDefined();
+    expect(last!["status"]).toBe("blocked");
+    expect(last!["blockedStage"]).toBe("output_validation");
   });
 });
