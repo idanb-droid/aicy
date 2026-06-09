@@ -1,0 +1,17 @@
+title = "SecureLLM Gateway gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow placeholder values in example/docs"
+paths = [
+  '''\.env\.example''',
+  '''README\.md''',
+  '''docs/.*''',
+]
+regexes = [
+  '''replace-with-.*''',
+  '''sk-ant-xxx''',
+  '''AKIAIOSFODNN7EXAMPLE''',
+]
