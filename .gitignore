@@ -31,3 +31,6 @@ build/
 
 coverage/
 *.tsbuildinfo
+
+# Challenge brief is untrusted input — never commit it
+*.pdf
