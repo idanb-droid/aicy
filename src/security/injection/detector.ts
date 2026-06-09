@@ -29,6 +29,11 @@ export function detectInjection(content: string): DetectionResult {
 export function detectInjectionInMessages(messages: { content: string }[]): DetectionResult {
   const all: DetectionHit[] = [];
   for (const m of messages) all.push(...detectInjection(m.content).rules);
+  // Also scan the joined turn: a trigger phrase split across messages (e.g.
+  // "ignore all previous" + "instructions...") evades every per-message rule.
+  if (messages.length > 1) {
+    all.push(...detectInjection(messages.map((m) => m.content).join(" ")).rules);
+  }
   const seen = new Set<string>();
   const deduped = all.filter((h) => (seen.has(h.id) ? false : (seen.add(h.id), true)));
   return { matched: deduped.length > 0, rules: deduped };
